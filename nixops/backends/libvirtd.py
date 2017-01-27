@@ -44,7 +44,6 @@ class LibvirtdState(MachineState):
     client_private_key = nixops.util.attr_property("libvirtd.clientPrivateKey", None)
     primary_net = nixops.util.attr_property("libvirtd.primaryNet", None)
     primary_mac = nixops.util.attr_property("libvirtd.primaryMAC", None)
-    domain_xml = nixops.util.attr_property("libvirtd.domainXML", None)
     disk_path = nixops.util.attr_property("libvirtd.diskPath", None)
     vcpu = nixops.util.attr_property("libvirtd.vcpu", None)
 
@@ -102,7 +101,14 @@ class LibvirtdState(MachineState):
                                base_image + "/disk.qcow2", self.disk_path])
             # TODO: use libvirtd.extraConfig to make the image accessible for your user
             os.chmod(self.disk_path, 0666)
+
+            dom_file = self.depl.tempdir + "/{0}-domain.xml".format(self.name)
+            domain_xml = self._make_domain_xml(defn)
+            nixops.util.write_file(dom_file, domain_xml)
+            self._logged_exec(["virsh", "-c", "qemu:///system", "define", dom_file])
+
             self.vm_id = self._vm_id()
+
         self.start()
         return True
 
@@ -194,18 +200,19 @@ class LibvirtdState(MachineState):
         ls = subprocess.check_output(["virsh", "-c", "qemu:///system", "list"])
         return (string.find(ls, self.vm_id) != -1)
 
+    def _is_created(self):
+        ls = subprocess.check_output(["virsh", "-c", "qemu:///system", "list", "--all"])
+        return (string.find(ls, self.vm_id) != -1)
+
     def start(self):
         assert self.vm_id
-        assert self.domain_xml
         assert self.primary_net
         if self._is_running():
             self.log("connecting...")
             self.private_ipv4 = self._parse_ip()
         else:
             self.log("starting...")
-            dom_file = self.depl.tempdir + "/{0}-domain.xml".format(self.name)
-            nixops.util.write_file(dom_file, self.domain_xml)
-            self._logged_exec(["virsh", "-c", "qemu:///system", "create", dom_file])
+            self._logged_exec(["virsh", "-c", "qemu:///system", "start", self.vm_id])
             self._wait_for_ip(0)
 
     def get_ssh_name(self):
@@ -225,6 +232,8 @@ class LibvirtdState(MachineState):
             return True
         self.log_start("destroying... ")
         self.stop()
+        if self._is_created():
+            self._logged_exec(["virsh", "-c", "qemu:///system", "undefine", self.vm_id])
         if (self.disk_path and os.path.exists(self.disk_path)):
             os.unlink(self.disk_path)
         return True

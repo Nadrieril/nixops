@@ -89,16 +89,14 @@ class LibvirtdState(MachineState):
             base_image = self._logged_exec(
                 ["nix-build"] + self.depl._eval_flags(self.depl.nix_exprs) +
                 ["--arg", "checkConfigurationOptions", "false",
-                 "-A", "nodes.{0}.config.deployment.libvirtd.baseImage".format(self.name),
-                 "-o", "{0}/libvirtd-image-{1}".format(self.depl.tempdir, self.name)],
+                 "-A", "nodes.{0}.config.deployment.libvirtd.baseImage".format(self.name)],
                 capture_stdout=True, env=newEnv).rstrip()
 
             if not os.access(defn.image_dir, os.W_OK):
                 raise Exception('{} is not writable by this user or it does not exist'.format(defn.image_dir))
 
             self.disk_path = self._disk_path(defn)
-            self._logged_exec(["qemu-img", "create", "-f", "qcow2", "-b",
-                               base_image + "/disk.qcow2", self.disk_path])
+            self._logged_exec(["qemu-img", "convert", "-O", "qcow2", base_image + "/disk.qcow2", self.disk_path])
             # TODO: use libvirtd.extraConfig to make the image accessible for your user
             os.chmod(self.disk_path, 0666)
 

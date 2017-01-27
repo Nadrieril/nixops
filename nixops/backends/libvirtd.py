@@ -84,6 +84,7 @@ class LibvirtdState(MachineState):
             (self.client_private_key, self.client_public_key) = nixops.util.create_key_pair()
 
         if self.vm_id is None:
+            self.vm_id = self._vm_id()
             newEnv = copy.deepcopy(os.environ)
             newEnv["NIXOPS_LIBVIRTD_PUBKEY"] = self.client_public_key
             base_image = self._logged_exec(
@@ -104,8 +105,7 @@ class LibvirtdState(MachineState):
             domain_xml = self._make_domain_xml(defn)
             nixops.util.write_file(dom_file, domain_xml)
             self._logged_exec(["virsh", "-c", "qemu:///system", "define", dom_file])
-
-            self.vm_id = self._vm_id()
+            self._logged_exec(["virsh", "-c", "qemu:///system", "autostart", self.vm_id])
 
         self.start()
         return True

@@ -46,7 +46,6 @@ class LibvirtdState(MachineState):
     private_ipv4_setting = nixops.util.attr_property("libvirtd.privateIpv4Setting", "dhcp") # Default for retro-compatibility
     client_public_key = nixops.util.attr_property("libvirtd.clientPublicKey", None)
     client_private_key = nixops.util.attr_property("libvirtd.clientPrivateKey", None)
-    domain_xml = nixops.util.attr_property("libvirtd.domainXML", None)
     disk_path = nixops.util.attr_property("libvirtd.diskPath", None)
     vcpu = nixops.util.attr_property("libvirtd.vcpu", None)
 
@@ -75,30 +74,34 @@ class LibvirtdState(MachineState):
         assert isinstance(defn, LibvirtdDefinition)
         self.set_common_state(defn)
         self.private_ipv4_setting = defn.private_ipv4_setting
-        self.domain_xml = self._make_domain_xml(defn)
 
         if not self.client_public_key:
             (self.client_private_key, self.client_public_key) = nixops.util.create_key_pair()
 
         if self.vm_id is None:
+            self.vm_id = self._vm_id()
             newEnv = copy.deepcopy(os.environ)
             newEnv["NIXOPS_LIBVIRTD_PUBKEY"] = self.client_public_key
             base_image = self._logged_exec(
                 ["nix-build"] + self.depl._eval_flags(self.depl.nix_exprs) +
                 ["--arg", "checkConfigurationOptions", "false",
-                 "-A", "nodes.{0}.config.deployment.libvirtd.baseImage".format(self.name),
-                 "-o", "{0}/libvirtd-image-{1}".format(self.depl.tempdir, self.name)],
+                 "-A", "nodes.{0}.config.deployment.libvirtd.baseImage".format(self.name)],
                 capture_stdout=True, env=newEnv).rstrip()
 
             if not os.access(defn.image_dir, os.W_OK):
                 raise Exception('{} is not writable by this user or it does not exist'.format(defn.image_dir))
 
             self.disk_path = self._disk_path(defn)
-            self._logged_exec(["qemu-img", "create", "-f", "qcow2", "-b",
-                               base_image + "/disk.qcow2", self.disk_path])
+            self._logged_exec(["qemu-img", "convert", "-O", "qcow2", base_image + "/disk.qcow2", self.disk_path])
             # TODO: use libvirtd.extraConfig to make the image accessible for your user
             os.chmod(self.disk_path, 0666)
-            self.vm_id = self._vm_id()
+
+            dom_file = self.depl.tempdir + "/{0}-domain.xml".format(self.name)
+            domain_xml = self._make_domain_xml(defn)
+            nixops.util.write_file(dom_file, domain_xml)
+            self._logged_exec(["virsh", "-c", "qemu:///system", "define", dom_file])
+            self._logged_exec(["virsh", "-c", "qemu:///system", "autostart", self.vm_id])
+
         self.start()
         return True
 
@@ -213,16 +216,17 @@ class LibvirtdState(MachineState):
         ls = subprocess.check_output(["virsh", "-c", "qemu:///system", "list"])
         return (string.find(ls, self.vm_id) != -1)
 
+    def _is_created(self):
+        ls = subprocess.check_output(["virsh", "-c", "qemu:///system", "list", "--all"])
+        return (string.find(ls, self.vm_id) != -1)
+
     def start(self):
         assert self.vm_id
-        assert self.domain_xml
         if self._is_running():
             self.log("connecting...")
         else:
             self.log("starting...")
-            dom_file = self.depl.tempdir + "/{0}-domain.xml".format(self.name)
-            nixops.util.write_file(dom_file, self.domain_xml)
-            self._logged_exec(["virsh", "-c", "qemu:///system", "create", dom_file])
+            self._logged_exec(["virsh", "-c", "qemu:///system", "start", self.vm_id])
         self.private_ipv4 = self._fetch_ip()
 
     def get_ssh_name(self):
@@ -242,6 +246,8 @@ class LibvirtdState(MachineState):
             return True
         self.log_start("destroying... ")
         self.stop()
+        if self._is_created():
+            self._logged_exec(["virsh", "-c", "qemu:///system", "undefine", self.vm_id])
         if (self.disk_path and os.path.exists(self.disk_path)):
             os.unlink(self.disk_path)
         return True

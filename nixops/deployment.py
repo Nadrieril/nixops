@@ -658,7 +658,8 @@ class Deployment(object):
 
 
     def activate_configs(self, configs_path, include, exclude, allow_reboot,
-                         force_reboot, check, sync, always_activate, dry_activate):
+                         force_reboot, check, sync, always_activate, dry_activate,
+                         test_only):
         """Activate the new configuration on a machine."""
 
         def worker(m):
@@ -692,6 +693,8 @@ class Deployment(object):
                     switch_method = "boot"
                 elif dry_activate:
                     switch_method = "dry-activate"
+                elif test_only:
+                    switch_method = "test"
                 else:
                     switch_method = "switch"
 
@@ -863,7 +866,7 @@ class Deployment(object):
             self._destroy_resources(include=to_destroy)
 
 
-    def _deploy(self, dry_run=False, build_only=False, create_only=False, copy_only=False, evaluate_only=False,
+    def _deploy(self, dry_run=False, build_only=False, test_only=False, create_only=False, copy_only=False, evaluate_only=False,
                 include=[], exclude=[], check=False, kill_obsolete=False,
                 allow_reboot=False, allow_recreate=False, force_reboot=False,
                 max_concurrent_copy=5, sync=True, always_activate=False, repair=False, dry_activate=False):
@@ -969,7 +972,8 @@ class Deployment(object):
         self.activate_configs(self.configs_path, include=include,
                               exclude=exclude, allow_reboot=allow_reboot,
                               force_reboot=force_reboot, check=check,
-                              sync=sync, always_activate=always_activate, dry_activate=dry_activate)
+                              sync=sync, always_activate=always_activate,
+                              dry_activate=dry_activate, test_only=test_only)
 
         if dry_activate: return
 
@@ -991,7 +995,7 @@ class Deployment(object):
 
     def _rollback(self, generation, include=[], exclude=[], check=False,
                   allow_reboot=False, force_reboot=False,
-                  max_concurrent_copy=5, sync=True):
+                  max_concurrent_copy=5, sync=True, test_only=False):
         if not self.rollback_enabled:
             raise Exception("rollback is not enabled for this network; please set ‘network.enableRollback’ to ‘true’ and redeploy"
                             )
@@ -1025,7 +1029,8 @@ class Deployment(object):
         self.activate_configs(self.configs_path, include=include,
                               exclude=exclude, allow_reboot=allow_reboot,
                               force_reboot=force_reboot, check=check,
-                              sync=sync, always_activate=True, dry_activate=False)
+                              sync=sync, always_activate=True, dry_activate=False,
+                              test_only=test_only)
 
 
     def rollback(self, **kwargs):
